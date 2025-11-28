@@ -1,0 +1,10 @@
+# Environment and credentials
+.env
+readtogether-*.json
+
+# Python cache/artefacts
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
