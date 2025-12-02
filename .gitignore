@@ -1,6 +1,7 @@
 # Environment and credentials
 .env
 readtogether-*.json
+ubuntu@*
 
 # Python cache/artefacts
 __pycache__/
