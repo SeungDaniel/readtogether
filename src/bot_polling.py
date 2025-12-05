@@ -324,7 +324,7 @@ class BotPolling:
                         self.handle_next(message)
                     elif command == "/status":
                         self.handle_status(message)
-            elif command == "/repeat":
+                    elif command == "/repeat":
                         self.handle_repeat(message)
                     elif command == "/previous":
                         self.handle_previous(message)
