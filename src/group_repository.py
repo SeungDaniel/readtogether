@@ -55,3 +55,23 @@ class GroupRepository:
         tz = timezone or ""
         range_ = f"{self.sheet_name}!A:D"
         self.sheets_client.append_row(range_, [chat_id, plan_sheet, start_date_str, tz])
+
+    def update_start_date(self, chat_id: str, new_date: datetime.date) -> bool:
+        """Update the start_date for a given chat_id."""
+        # 1. Find the row index
+        range_ = f"{self.sheet_name}!A2:A" # Read only chat_ids
+        rows = self.sheets_client.get_values(range_)
+        
+        row_index = -1
+        for idx, row in enumerate(rows):
+            if row and str(row[0]).strip() == str(chat_id):
+                row_index = idx + 2 # +2 because 0-based index + 1 header row + 1 for 1-based sheet
+                break
+        
+        if row_index == -1:
+            return False
+            
+        # 2. Update the cell (Column C is start_date)
+        cell_range = f"{self.sheet_name}!C{row_index}"
+        self.sheets_client.update_row(cell_range, [new_date.isoformat()])
+        return True

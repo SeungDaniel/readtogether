@@ -320,11 +320,41 @@ class BotPolling:
                     elif command == "/reload":
                         self.plan_repo.reload()
                         send_message(int(chat_id), "Plan reloaded.")
+                    elif command == "/set_start_date":
+                        self.handle_set_start_date(message)
             except Exception as exc:
                 logging.error("Error handling update: %s", exc, exc_info=True)
                 self.log_event(message, command, "error", str(exc))
             else:
                 self.log_event(message, command, "ok")
+
+    def handle_set_start_date(self, message: dict) -> None:
+        chat_id = str(message["chat"]["id"])
+        text = message.get("text", "")
+        parts = text.split()
+        if len(parts) != 2:
+            send_message(int(chat_id), "사용법: /set_start_date YYYY-MM-DD\n예: /set_start_date 2025-01-01")
+            return
+        
+        date_str = parts[1]
+        try:
+            new_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            send_message(int(chat_id), "날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.")
+            return
+            
+        try:
+            success = self.group_repo.update_start_date(chat_id, new_date)
+            if success:
+                send_message(int(chat_id), f"✅ 시작일이 {new_date}로 변경되었습니다.")
+                # Update cache if needed, but cache only stores chat_ids currently.
+                # If we cached start_date, we would need to update it.
+                # Currently we fetch fresh config in handle_today_group, so it's fine.
+            else:
+                send_message(int(chat_id), "⚠️ 그룹 정보를 찾을 수 없습니다. 먼저 봇을 그룹에 다시 초대해보세요.")
+        except Exception:
+            logging.error("Failed to update start date", exc_info=True)
+            send_message(int(chat_id), "설정 변경 중 오류가 발생했습니다.")
 
     def link_user_to_group(self, user_id: str, username: str, group_id: str) -> None:
         """Add group_id to user's progress if not already present."""
@@ -621,7 +651,10 @@ class BotPolling:
             logging.error("Failed to auto-register group: %s", exc, exc_info=True)
         welcome_text = (
             "안녕하세요! 요한복음 공동체 봇입니다. 🙌\n"
-            "이 방은 기본 설정으로 등록되었습니다. 시작일/플랜/타임존이 필요에 맞는지 시트에서 확인해주세요.\n"
+            f"이 방은 기본 설정(시작일: {start_date})으로 등록되었습니다.\n"
+            "시작일을 변경하려면 아래 명령어를 입력해주세요:\n"
+            "/set_start_date YYYY-MM-DD\n"
+            "(예: /set_start_date 2025-01-01)\n\n"
             "개인 퀘스트는 DM에서 /start_john 으로 시작할 수 있어요."
         )
         send_message(chat.get("id"), welcome_text, reply_markup=WELCOME_INLINE_KEYBOARD)
