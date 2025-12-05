@@ -645,15 +645,15 @@ class BotPolling:
             day = (now_local.date() - start_date).days + 1
             
             if day <= 0:
-                send_message(chat_id, f"공동체(ID:{group['chat_id']}) DAY가 아직 시작 전입니다.")
+                send_message(chat_id, f"모임(ID:{group['chat_id']}) DAY가 아직 시작 전입니다.")
                 continue
 
             plan_row = self.plan_repo.get_plan_by_day(day)
             if not plan_row:
-                send_message(chat_id, f"공동체(ID:{group['chat_id']}) DAY {day} 정보를 찾지 못했습니다.")
+                send_message(chat_id, f"모임(ID:{group['chat_id']}) DAY {day} 정보를 찾지 못했습니다.")
                 continue
 
-            text = build_plan_text(day, plan_row, personal=True, header_prefix="공동체")
+            text = build_plan_text(day, plan_row, personal=True, header_prefix="모임")
             # Add a header to distinguish groups if multiple
             if len(target_groups) > 1:
                 text = f"📢 <b>그룹 {group['chat_id']}</b>\n\n" + text
@@ -706,9 +706,9 @@ class BotPolling:
         except Exception as exc:  # noqa: BLE001
             logging.error("Failed to auto-register group: %s", exc, exc_info=True)
         welcome_text = (
-            "안녕하세요! 요한복음 공동체 봇입니다. 🙌\n"
+            "안녕하세요! 요한복음 성경읽기 봇입니다. 🙌\n\n"
             f"이 방은 기본 설정(시작일: {start_date} / 내일, 알림: 08:00)으로 등록되었습니다.\n"
-            "설정을 변경하려면 아래 명령어를 사용하세요:\n"
+            "설정을 변경하려면 아래 명령어를 사용하세요:\n\n"
             "• 시작일 변경: `/set_date 2025-01-01`\n"
             "• 알림 시간 변경: `/set_time 09:00`\n"
             "• 건의사항: `/ask 알림이 안 와요`\n\n"
