@@ -300,8 +300,15 @@ class BotPolling:
             command = text.split()[0]
             
             try:
-                if chat_type in ("group", "supergroup") and command == "/register_group":
-                    self.handle_register_group(message)
+                if chat_type in ("group", "supergroup"):
+                    if command == "/register_group":
+                        self.handle_register_group(message)
+                    elif command == "/set_start_date" or command == "/set_date":
+                        self.handle_set_start_date(message)
+                    elif command == "/set_time":
+                        self.handle_set_time(message)
+                    elif command == "/ask":
+                        self.handle_ask(message)
                 elif chat_type == "private":
                     if command == "/start":
                         self.handle_start_entry(message)
@@ -320,8 +327,8 @@ class BotPolling:
                     elif command == "/reload":
                         self.plan_repo.reload()
                         send_message(int(chat_id), "Plan reloaded.")
-                    elif command == "/set_start_date":
-                        self.handle_set_start_date(message)
+                    elif command == "/ask": # Allow /ask in private chats too
+                        self.handle_ask(message)
             except Exception as exc:
                 logging.error("Error handling update: %s", exc, exc_info=True)
                 self.log_event(message, command, "error", str(exc))
@@ -333,7 +340,7 @@ class BotPolling:
         text = message.get("text", "")
         parts = text.split()
         if len(parts) != 2:
-            send_message(int(chat_id), "사용법: /set_start_date YYYY-MM-DD\n예: /set_start_date 2025-01-01")
+            send_message(int(chat_id), "사용법: /set_date YYYY-MM-DD\n예: /set_date 2025-01-01")
             return
         
         date_str = parts[1]
@@ -347,14 +354,61 @@ class BotPolling:
             success = self.group_repo.update_start_date(chat_id, new_date)
             if success:
                 send_message(int(chat_id), f"✅ 시작일이 {new_date}로 변경되었습니다.")
-                # Update cache if needed, but cache only stores chat_ids currently.
-                # If we cached start_date, we would need to update it.
-                # Currently we fetch fresh config in handle_today_group, so it's fine.
             else:
                 send_message(int(chat_id), "⚠️ 그룹 정보를 찾을 수 없습니다. 먼저 봇을 그룹에 다시 초대해보세요.")
         except Exception:
             logging.error("Failed to update start date", exc_info=True)
             send_message(int(chat_id), "설정 변경 중 오류가 발생했습니다.")
+
+    def handle_set_time(self, message: dict) -> None:
+        chat_id = str(message["chat"]["id"])
+        text = message.get("text", "")
+        parts = text.split()
+        if len(parts) != 2:
+            send_message(int(chat_id), "사용법: /set_time HH:MM\n예: /set_time 08:00")
+            return
+        
+        time_str = parts[1]
+        try:
+            # Validate time format
+            datetime.datetime.strptime(time_str, "%H:%M")
+        except ValueError:
+            send_message(int(chat_id), "시간 형식이 올바르지 않습니다. HH:MM (24시간) 형식으로 입력해주세요.")
+            return
+
+        try:
+            success = self.group_repo.update_notification_time(chat_id, time_str)
+            if success:
+                send_message(int(chat_id), f"✅ 알림 시간이 {time_str}으로 변경되었습니다.")
+            else:
+                send_message(int(chat_id), "⚠️ 그룹 정보를 찾을 수 없습니다.")
+        except Exception:
+            logging.error("Failed to update notification time", exc_info=True)
+            send_message(int(chat_id), "설정 변경 중 오류가 발생했습니다.")
+
+    def handle_ask(self, message: dict) -> None:
+        chat_id = message["chat"]["id"]
+        text = message.get("text", "")
+        # Remove command
+        content = text.replace("/ask", "", 1).strip()
+        
+        if not content:
+            send_message(chat_id, "건의할 내용을 입력해주세요.\n예: /ask 알림이 안 와요")
+            return
+            
+        # Send to Admin
+        admin_id = 124230721
+        try:
+            user = message.get("from", {})
+            sender_info = f"User: {user.get('first_name', '')} ({user.get('username', 'NoUsername')}), ChatID: {chat_id}"
+            admin_msg = f"📩 [건의사항 접수]\n{sender_info}\n\n내용:\n{content}"
+            send_message(admin_id, admin_msg)
+            
+            # Reply to User
+            send_message(chat_id, "확인 후 반영하겠습니다. 소중한 의견 감사합니다. 🙏")
+        except Exception:
+            logging.error("Failed to send ask to admin", exc_info=True)
+            send_message(chat_id, "건의사항 전송 중 오류가 발생했습니다.")
 
     def link_user_to_group(self, user_id: str, username: str, group_id: str) -> None:
         """Add group_id to user's progress if not already present."""
@@ -615,8 +669,8 @@ class BotPolling:
             return
         title = chat.get("title", "")
         plan_sheet = config.PLAN_SHEET_NAME
-        # Default to TODAY so Day 1 starts immediately
-        start_date = today_date()
+        # Default to TOMORROW (invited date + 1)
+        start_date = today_date() + datetime.timedelta(days=1)
         tz = os.environ.get("TIMEZONE", "Asia/Seoul")
         try:
             self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
@@ -643,8 +697,8 @@ class BotPolling:
         if chat_id in self.group_cache:
             return
         plan_sheet = config.PLAN_SHEET_NAME
-        # Default to TODAY so Day 1 starts immediately
-        start_date = today_date()
+        # Default to TOMORROW (invited date + 1)
+        start_date = today_date() + datetime.timedelta(days=1)
         tz = os.environ.get("TIMEZONE", "Asia/Seoul")
         try:
             self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
@@ -653,10 +707,11 @@ class BotPolling:
             logging.error("Failed to auto-register group: %s", exc, exc_info=True)
         welcome_text = (
             "안녕하세요! 요한복음 공동체 봇입니다. 🙌\n"
-            f"이 방은 기본 설정(시작일: {start_date} / 오늘)으로 등록되었습니다.\n"
-            "시작일을 변경하려면 아래 명령어를 입력해주세요:\n"
-            "/set_start_date YYYY-MM-DD\n"
-            "(예: /set_start_date 2025-01-01)\n\n"
+            f"이 방은 기본 설정(시작일: {start_date} / 내일, 알림: 08:00)으로 등록되었습니다.\n"
+            "설정을 변경하려면 아래 명령어를 사용하세요:\n"
+            "• 시작일 변경: `/set_date 2025-01-01`\n"
+            "• 알림 시간 변경: `/set_time 09:00`\n"
+            "• 건의사항: `/ask 알림이 안 와요`\n\n"
             "개인 퀘스트는 DM에서 /start_john 으로 시작할 수 있어요."
         )
         send_message(chat.get("id"), welcome_text, reply_markup=WELCOME_INLINE_KEYBOARD)
