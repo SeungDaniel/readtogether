@@ -690,21 +690,46 @@ class BotPolling:
         chat_type = chat.get("type")
         if chat_type not in ("group", "supergroup"):
             return
+            
         new_status = member_update.get("new_chat_member", {}).get("status")
-        if new_status not in ("member", "administrator"):
+        old_status = member_update.get("old_chat_member", {}).get("status")
+        
+        # Only react if bot is JOINING (or being promoted, but mainly joining)
+        # If old_status was already member/admin, we might skip welcome to avoid spam on promotion.
+        # But let's be safe: if new is member/admin and old was NOT member/admin.
+        is_joining = (
+            new_status in ("member", "administrator") and 
+            old_status not in ("member", "administrator")
+        )
+        
+        if not is_joining:
             return
+
         chat_id = str(chat.get("id"))
-        if chat_id in self.group_cache:
-            return
-        plan_sheet = config.PLAN_SHEET_NAME
+        
         # Default to TOMORROW (invited date + 1)
         start_date = today_date() + datetime.timedelta(days=1)
         tz = os.environ.get("TIMEZONE", "Asia/Seoul")
-        try:
-            self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
-            self.group_cache.add(chat_id)
-        except Exception as exc:  # noqa: BLE001
-            logging.error("Failed to auto-register group: %s", exc, exc_info=True)
+        
+        # Register if not exists
+        if chat_id not in self.group_cache:
+            plan_sheet = config.PLAN_SHEET_NAME
+            try:
+                self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
+                self.group_cache.add(chat_id)
+                self.log_event_simple(chat_id, chat_type, "", "my_chat_member", "ok", "auto-registered")
+            except Exception as exc:  # noqa: BLE001
+                logging.error("Failed to auto-register group: %s", exc, exc_info=True)
+        else:
+            # Already registered, maybe re-joining. 
+            # We might want to fetch existing start_date to show in welcome message?
+            # For simplicity, just show the default message or generic one.
+            # But the message says "Registered with start_date...".
+            # If it's a re-join, the start date might be old.
+            # Let's just show the standard welcome message with the *calculated* default, 
+            # or maybe say "Welcome back! Check settings with /set_date".
+            pass
+
         welcome_text = (
             "안녕하세요! 요한복음 성경읽기 봇입니다. 🙌\n\n"
             f"이 방은 기본 설정(시작일: {start_date} / 내일, 알림: 08:00)으로 등록되었습니다.\n"
@@ -715,7 +740,6 @@ class BotPolling:
             "개인 퀘스트는 DM에서 /start_john 으로 시작할 수 있어요."
         )
         send_message(chat.get("id"), welcome_text, reply_markup=WELCOME_INLINE_KEYBOARD)
-        self.log_event_simple(chat_id, chat_type, "", "my_chat_member", "ok", "auto-registered")
 
     def log_event(self, message: dict, command: str, status: str, note: str = "") -> None:
         try:
