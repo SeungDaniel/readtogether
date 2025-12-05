@@ -132,8 +132,8 @@ def send_typing(chat_id: int) -> None:
 
 TOTAL_DAYS = 66
 
-def build_plan_text(day: int, plan_row: dict, personal: bool = True) -> str:
-    prefix = "개인" if personal else "공동체"
+def build_plan_text(day: int, plan_row: dict, personal: bool = True, header_prefix: Optional[str] = None) -> str:
+    prefix = header_prefix if header_prefix else ("개인" if personal else "공동체")
     ref = plan_row.get("ref", "")
     title = plan_row.get("title", "")
     summary = plan_row.get("summary", "")
@@ -157,7 +157,7 @@ def build_plan_text(day: int, plan_row: dict, personal: bool = True) -> str:
         msg += f"<blockquote>{verse_text}</blockquote>\n\n"
         
     if has_parallel:
-        msg += "📖 평행본문 (Parallel Gospels)\n"
+        msg += "📖 함께 읽어보면 좋은 평행본문입니다:\n"
         if is_valid_parallel(mt):
             msg += f"• 마태(Mt): {mt}\n"
         if is_valid_parallel(mk):
@@ -165,22 +165,9 @@ def build_plan_text(day: int, plan_row: dict, personal: bool = True) -> str:
         if is_valid_parallel(lk):
             msg += f"• 누가(Lk): {lk}\n"
         msg += "\n"
-        # Optional: Still show summary if parallel exists? User said "Instead of summary".
-        # Let's assume we replace summary with parallel if parallel exists.
-        # But if user wants summary + parallel, we can add it back.
-        # User said: "오늘의 말씀과, 요약 대신에 평행본문 소개하는걸로" -> So replace summary.
     else:
-        # No parallel (Unique to John)
-        # User said: "요한복음에만 기록됐으면 오늘의 말씀(요약x)" -> So NO summary here either.
-        # Wait, if unique, show ONLY verse text.
         pass
         
-    # User instruction: "요한복음에만 기록됐으면 오늘의 말씀(요약x), 평행본문이 존재하면 평행본문 소개."
-    # This implies Summary is GONE in both cases for Personal Mode.
-    # But let's keep Summary for Community Mode (personal=False) if needed?
-    # The request said "개인모드에서 먼저...".
-    # Let's apply this logic for personal=True.
-    
     if not personal:
         # For community mode, keep original behavior (Summary)
         msg += f"{constants.EMOJI_BOOK} 이런 내용입니다:\n{summary}\n\n"
@@ -582,7 +569,7 @@ class BotPolling:
                 send_message(chat_id, f"공동체(ID:{group['chat_id']}) DAY {day} 정보를 찾지 못했습니다.")
                 continue
 
-            text = build_plan_text(day, plan_row, personal=True)
+            text = build_plan_text(day, plan_row, personal=True, header_prefix="공동체")
             # Add a header to distinguish groups if multiple
             if len(target_groups) > 1:
                 text = f"📢 <b>그룹 {group['chat_id']}</b>\n\n" + text
