@@ -67,6 +67,24 @@ def send_photo(
     caption: str,
     reply_markup: Optional[Dict[str, Any]] = None,
 ) -> None:
+    # Telegram caption limit is 1024 characters.
+    # If caption is too long, split into Photo + Text Message.
+    if len(caption) > 1000:
+        try:
+            # 1. Send Photo (empty caption)
+            url = f"{config.TELEGRAM_API_BASE_URL}/sendPhoto"
+            payload = {"chat_id": chat_id, "photo": photo_url}
+            requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
+            
+            # 2. Send Text (with markup)
+            send_message(chat_id, caption, reply_markup)
+            return
+        except Exception:
+            logging.warning("Failed to send split photo, falling back to text only", exc_info=True)
+            send_message(chat_id, caption, reply_markup)
+            return
+
+    # Normal attempt for short captions
     url = f"{config.TELEGRAM_API_BASE_URL}/sendPhoto"
     payload = {
         "chat_id": chat_id,
@@ -76,8 +94,16 @@ def send_photo(
     }
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
-    response = requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
-    response.raise_for_status()
+        
+    try:
+        response = requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 400:
+            logging.warning("sendPhoto failed with 400 (Bad Request), falling back to text only. URL: %s", photo_url)
+            send_message(chat_id, caption, reply_markup)
+        else:
+            raise
 
 
 def set_message_reaction(chat_id: str, message_id: int, emoji: str = constants.EMOJI_REACTION) -> None:
