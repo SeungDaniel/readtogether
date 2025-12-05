@@ -615,7 +615,8 @@ class BotPolling:
             return
         title = chat.get("title", "")
         plan_sheet = config.PLAN_SHEET_NAME
-        start_date = config.START_DATE
+        # Default to TODAY so Day 1 starts immediately
+        start_date = today_date()
         tz = os.environ.get("TIMEZONE", "Asia/Seoul")
         try:
             self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
@@ -642,7 +643,8 @@ class BotPolling:
         if chat_id in self.group_cache:
             return
         plan_sheet = config.PLAN_SHEET_NAME
-        start_date = config.START_DATE
+        # Default to TODAY so Day 1 starts immediately
+        start_date = today_date()
         tz = os.environ.get("TIMEZONE", "Asia/Seoul")
         try:
             self.group_repo.append_group(chat_id, plan_sheet, start_date, tz)
@@ -651,7 +653,7 @@ class BotPolling:
             logging.error("Failed to auto-register group: %s", exc, exc_info=True)
         welcome_text = (
             "안녕하세요! 요한복음 공동체 봇입니다. 🙌\n"
-            f"이 방은 기본 설정(시작일: {start_date})으로 등록되었습니다.\n"
+            f"이 방은 기본 설정(시작일: {start_date} / 오늘)으로 등록되었습니다.\n"
             "시작일을 변경하려면 아래 명령어를 입력해주세요:\n"
             "/set_start_date YYYY-MM-DD\n"
             "(예: /set_start_date 2025-01-01)\n\n"
