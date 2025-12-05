@@ -1,13 +1,14 @@
 import datetime
 import logging
 import os
-import re
 import html
-from typing import Optional, Tuple
+from typing import Optional
 
 import requests
 
 import config
+import constants
+import utils
 from google_sheets_client import GoogleSheetsClient
 from plan_repository import PlanRepository
 from group_repository import GroupRepository
@@ -36,7 +37,7 @@ def calculate_day(today: datetime.datetime, start_date: datetime.date) -> Option
 TOTAL_DAYS = 66  # Based on the screenshot (n/66)
 
 
-def build_message(plan_row: dict, day: int) -> str:
+def build_message(plan_row: dict, day: int, youtube_link: str = "") -> str:
     ref = html.escape(plan_row.get("ref", ""))
     title = html.escape(plan_row.get("title", ""))
     summary = html.escape(plan_row.get("summary", ""))
@@ -48,43 +49,45 @@ def build_message(plan_row: dict, day: int) -> str:
     
     msg = f"[요한복음 함께 읽기 DAY {day}]\n\n"
     msg += "오늘의 범위는\n"
-    msg += f"🌈 <b>{ref} ({title})</b>입니다.\n\n"
+    msg += f"{constants.EMOJI_RAINBOW} <b>{ref} ({title})</b>입니다.\n\n"
 
 
     if verse_text:
-        msg += f"📖<b>오늘의 말씀</b>\n<i>\"{verse_text}\" ({verse_ref})</i>\n\n"
+        msg += f"📖 <b>오늘의 말씀</b>\n<blockquote>\"{verse_text}\"{verse_ref}</blockquote>\n\n"
+    
+    # Summary temporarily disabled
+    # msg += "📖 <b>무슨 내용인가요?</b>\n"
+    # msg += f"{summary}\n\n"
+
+    # Youtube link moved to References
+    # if youtube_link:
+    #     msg += f"🎧 <a href=\"{youtube_link}\">오늘 말씀 듣기 (Youtube)</a>\n\n"
     
     msg += "읽고 퀴즈를 내거나, 인상깊은 구절을 공유하는 등 자유롭게 인증해주세요. 🙌\n\n"
     
     msg += f"진도율 : {day}/{TOTAL_DAYS} ({progress_percent}% 완료!)\n\n"
     
-    msg += "📚<b>참고자료</b>\n"
-    msg += '- <a href="https://t.me/c/1829333998/244/361?single">[지도] 예수님 당시의 이스라엘</a>\n'
-    msg += '- <a href="http://www.biblemap.or.kr/biblemapMobile.html">성경 지도(추천)</a>'
+    msg += f"📚 <b>참고자료</b>\n"
+    if youtube_link:
+        msg += f"{constants.EMOJI_HEADPHONE} <a href=\"{youtube_link}\">오늘 말씀 듣기 (Youtube)</a>\n"
+    msg += f'{constants.EMOJI_MAP} <a href="https://t.me/c/1829333998/244/361?single">[지도] 예수님 당시의 이스라엘</a>\n'
+    msg += f'{constants.EMOJI_COMPASS} <a href="http://www.biblemap.or.kr/biblemapMobile.html">성경 지도(추천)</a>'
     
     return msg
 
 
-def parse_chat_destination(chat_id_str: str) -> Tuple[str, Optional[int]]:
-    """Allow chat ids like '-100123_456' where 456 is a topic/thread id."""
-    match = re.match(r"(?P<chat>-?\d+)(?:_(?P<thread>\d+))?$", chat_id_str.strip())
-    if match:
-        chat = match.group("chat")
-        thread = match.group("thread")
-        return chat, int(thread) if thread else None
-    return chat_id_str, None
-
-
-def send_message(chat_id: str, text: str, message_thread_id: Optional[int] = None) -> None:
+def send_message(chat_id: str, text: str, message_thread_id: Optional[int] = None, reply_markup: Optional[dict] = None) -> None:
     url = f"{config.TELEGRAM_API_BASE_URL}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     response = requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
     response.raise_for_status()
 
 
-def send_photo(chat_id: str, photo_url: str, caption: str, message_thread_id: Optional[int] = None) -> None:
+def send_photo(chat_id: str, photo_url: str, caption: str, message_thread_id: Optional[int] = None, reply_markup: Optional[dict] = None) -> None:
     url = f"{config.TELEGRAM_API_BASE_URL}/sendPhoto"
     
     # Handle local file paths
@@ -102,19 +105,25 @@ def send_photo(chat_id: str, photo_url: str, caption: str, message_thread_id: Op
             data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
             if message_thread_id is not None:
                 data["message_thread_id"] = str(message_thread_id)
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
             
             response = requests.post(url, data=data, files=files, timeout=config.REQUEST_TIMEOUT + 10)
             response.raise_for_status()
     else:
-        # Send URL
+        # Send URL (convert if Google Drive)
+        final_photo_url = utils.convert_google_drive_url(photo_url)
+        
         payload = {
             "chat_id": chat_id, 
-            "photo": photo_url, 
+            "photo": final_photo_url, 
             "caption": caption, 
             "parse_mode": "HTML"
         }
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         response = requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
         response.raise_for_status()
 
@@ -124,26 +133,29 @@ def main() -> None:
         spreadsheet_id=config.SPREADSHEET_ID,
         credentials_file=config.GOOGLE_SERVICE_ACCOUNT_FILE,
     )
-    groups = config.GROUPS
-    if config.GROUPS_FROM_SHEET:
-        group_repo = GroupRepository(sheets_client, config.GROUPS_SHEET_NAME)
-        sheet_groups = group_repo.list_groups()
-        if sheet_groups:
-            groups = [
-                {
-                    "chat_id": g["chat_id"],
-                    "plan_sheet": g.get("plan_sheet") or config.PLAN_SHEET_NAME,
-                    "start_date": g.get("start_date") or config.START_DATE,
-                    "timezone": (
-                        config.ZoneInfo(g["timezone"])
-                        if g.get("timezone") and config.ZoneInfo
-                        else config.TIMEZONE
-                    ),
-                }
-                for g in sheet_groups
-            ]
+    
+    # Always fetch groups from the sheet
+    group_repo = GroupRepository(sheets_client, config.GROUPS_SHEET_NAME)
+    sheet_groups = group_repo.list_groups()
+    
+    groups = []
+    if sheet_groups:
+        groups = [
+            {
+                "chat_id": g["chat_id"],
+                "plan_sheet": g.get("plan_sheet") or config.PLAN_SHEET_NAME,
+                "start_date": g.get("start_date") or config.START_DATE,
+                "timezone": (
+                    config.ZoneInfo(g["timezone"])
+                    if g.get("timezone") and config.ZoneInfo
+                    else config.TIMEZONE
+                ),
+            }
+            for g in sheet_groups
+        ]
+    
     if not groups:
-        logging.error("No group configuration found.")
+        logging.error("No group configuration found in Google Sheets.")
         return
 
     today = _now()
@@ -151,7 +163,7 @@ def main() -> None:
 
     for group in groups:
         chat_id_raw = group["chat_id"]
-        chat_id, thread_id = parse_chat_destination(chat_id_raw)
+        chat_id, thread_id = utils.parse_chat_destination(chat_id_raw)
         start_date = group.get("start_date") or config.START_DATE
         plan_sheet = group.get("plan_sheet") or config.PLAN_SHEET_NAME
         tz = group.get("timezone") or config.TIMEZONE
@@ -177,9 +189,9 @@ def main() -> None:
             )
             continue
 
-        message = build_message(plan_row, day)
+        message = build_message(plan_row, day, youtube_link=plan_row.get("youtube_link", "").strip())
         image_url = plan_row.get("image_url", "").strip()
-
+        
         if DRY_RUN:
             logging.info(
                 "[DRY_RUN] Would send to chat_id=%s (sheet=%s, start=%s):\n%s\n[Image]: %s",
@@ -193,6 +205,7 @@ def main() -> None:
 
         try:
             if image_url:
+                logging.info("Attempting to send photo to %s. URL/Path: '%s'", chat_id, image_url)
                 send_photo(chat_id, image_url, message, thread_id)
                 logging.info(
                     "Sent day %s photo+message to chat_id=%s (sheet=%s)", day, chat_id_raw, plan_sheet

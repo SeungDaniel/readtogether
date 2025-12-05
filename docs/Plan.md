@@ -1,73 +1,50 @@
-# 🗺️ 요한복음 봇 프로젝트 로드맵 (John Bot Roadmap)
+# Future Roadmap & Improvements
+# 향후 발전 계획
 
-이 문서는 프로젝트의 현재 진행 상황과 향후 개발 계획을 시각적으로 보여줍니다.
+This document outlines potential directions for evolving the John Daily Bot project, focusing on UX, Engineering, and Analytics.
+이 문서는 요한복음 데일리 봇 프로젝트의 향후 발전 방향(UX, 엔지니어링, 데이터 분석)을 정리합니다.
 
-## 📊 프로젝트 현황 대시보드
+## 1. User Experience (UX) Expansion: "More Fun & Smart"
+## 1. 사용자 경험 (UX) 확장: "더 재미있고 똑똑하게"
 
-| 단계              | 구분                     | 상태               | 주요 내용                                                            |
-| :---------------- | :----------------------- | :----------------- | :------------------------------------------------------------------- |
-| **Phase 1** | **핵심 골격 구축** | ✅**완료**   | 폴더 구조, 기본 파일, 구글 시트 연동, 기본 폴링 로직                 |
-| **Phase 2** | **UX/성능 고도화** | 🚧**대기**   | **인라인 버튼**, **로컬 캐싱(속도↑)**, 비동기 구조 준비 |
-| **Phase 3** | **배포 및 운영**   | ☁️**예정** | 오라클 서버 배포, 리마인더, 웹훅 전환(옵션)                          |
+*   **Gamification (게이미피케이션)**:
+    *   **Streak Badges**: "3-Day Streak! 🔥", "7-Day Streak! 🏆" notifications to motivate users.
+    *   **연속 읽기 배지**: "3일 연속 달성! 🔥", "7일 연속! 🏆" 같은 알림으로 동기 부여.
+    *   **Level System**: Ranks based on read count (e.g., Beginner -> Disciple -> Apostle).
+    *   **레벨 시스템**: 읽은 날짜 수에 따라 등급 부여 (예: 초심자 -> 제자 -> 사도).
 
----
+*   **AI Meditation Assistant (AI 묵상 도우미 - RAG)**:
+    *   Users can ask questions like "Where is Bethany in today's text?", and the bot answers using learned data (commentaries, maps).
+    *   사용자가 "오늘 본문에서 '베다니'가 어디야?"라고 물으면, 봇이 학습된 데이터(주석, 지도 정보)를 바탕으로 답변해주는 기능.
 
-## 🗓️ 단계별 상세 계획
+*   **Personalized Reminders (개인화 리마인더)**:
+    *   Nudge users who haven't read yet at 9 PM: "Don't miss today's word!"
+    *   아직 읽지 않은 사람에게만 저녁 9시에 "오늘 말씀 놓치지 않으셨나요?"라고 살짝 찔러주는 기능.
 
-### Phase 1: 핵심 골격 구축 (Foundation)
+## 2. Technical Engineering: "Faster & More Stable"
+## 2. 기술적 고도화: "더 빠르고 안정적으로"
 
-> **목표**: "일단 돌아가는" 기본적인 봇 구조와 파일 시스템을 완성합니다.
+*   **Webhook Transition (웹훅 전환)**:
+    *   Switch from Polling (asking "Any msg?") to Webhook (Telegram notifies server).
+    *   Reduces latency and server resource usage. Essential for production deployment.
+    *   폴링(Polling) 방식에서 웹훅(Webhook) 방식으로 전환하여 반응 속도를 높이고 서버 자원을 절약.
 
-- [X] **프로젝트 구조화**: `src`, `config`, `docs` 폴더 정리 및 파일 분류
-- [X] **환경 설정**: `.env` 및 `config.py`를 통한 환경변수 관리 체계 수립
-- [X] **DB 레이어 (Google Sheets)**:
-  - [X] `google_sheets_client.py`: API 연동 기본 모듈
-  - [X] `*_repository.py`: Plan, Progress, Group, Log 데이터 접근 객체(DAO) 구현
-- [X] **핵심 로직 (Basic)**:
-  - [X] `daily_broadcast.py`: 공동체 단톡방 자동 발송 스크립트
-  - [X] `bot_polling.py`: 1:1 채팅 명령어 처리 (`/start_john`, `/next` 등)
+*   **Database Integration (데이터베이스 도입)**:
+    *   Use **SQLite** or **PostgreSQL** for main data storage.
+    *   Use Google Sheets only as an Admin CMS (one-way sync) to prevent API throttling and improve performance.
+    *   실제 데이터는 DB에 저장하고, 구글 시트는 관리자용 입력 도구로만 사용하여 성능과 안정성 확보.
 
-### Phase 2: UX 및 성능 고도화 (Refinement)
+*   **Docker Containerization (도커 컨테이너화)**:
+    *   Package the environment so it runs with `docker-compose up` on any server (AWS, Oracle Cloud, etc.).
+    *   어떤 서버에서도 즉시 실행 가능하도록 환경 패키징.
 
-> **목표**: 사용자가 "편하다"고 느끼게 만들고, 서버가 "안정적"으로 돌게 만듭니다.
+## 3. Data Analytics: "Spiritual Weather Map"
+## 3. 데이터 분석: "공동체 영적 기상도"
 
-- [ ] **UX 혁신 (인라인 버튼)**:
-  - [ ] 채팅창에 `/next` 치는 대신, 메시지 하단 **[다음 퀘스트 받기]** 버튼 터치로 변경
-  - [ ] **[다시 읽기]**, **[진행 상황]** 등 모든 액션을 버튼화
-- [ ] **성능 최적화 (캐싱 전략)**:
-  - [ ] **Plan 캐싱**: 구글 시트의 본문 데이터를 서버 메모리나 로컬 JSON에 저장 (매번 API 호출 X)
-  - [ ] **Progress 배치 저장**: 사용자 진도를 SQLite에 먼저 저장하고, 일정 주기(예: 5분)마다 구글 시트에 몰아서 저장 (API 비용/속도 해결)
-- [ ] **피드백 강화**:
-  - [ ] 퀘스트 완료 시 "🎉 3일 연속 성공!" 같은 **Streak(연속 수행)** 메시지 추가
-  - [ ] 로딩 중 "typing..." 액션 적절히 활용
+*   **Dashboard Webpage (대시보드 웹페이지)**:
+    *   Simple web view showing "Community Progress Rate", "Most Active Times", "Popular Verses".
+    *   "이번 주 우리 공동체 진도율", "가장 많이 읽는 요일/시간대" 등을 보여주는 그래프 페이지.
 
-### Phase 3: 배포 및 확장 (Deployment & Expansion)
-
-> **목표**: 실제 서버에 올리고, 장기 운영을 위한 자동화 시스템을 구축합니다.
-
-- [ ] **서버 배포**:
-  - [ ] 오라클 클라우드(Ubuntu) 환경 설정
-  - [ ] `systemd`를 이용한 봇 백그라운드 실행 및 자동 재시작 설정
-- [ ] **리마인더 시스템**:
-  - [ ] 밤 9시까지 퀘스트를 안 깬 사람에게 "오늘 말씀 잊지 않으셨죠?" DM 발송 (Cron)
-- [ ] **웹훅(Webhook) 전환 (Optional)**:
-  - [ ] 사용자가 늘어나면 폴링 → 웹훅으로 전환 (Cloudflare Tunnel 활용 권장)
-- [ ] **관리자 도구**:
-  - [ ] `/reload_plan`: 시트 수정 후 봇 재시작 없이 데이터 갱신
-  - [ ] `/broadcast_all`: 전체 사용자에게 공지사항 발송
-
----
-
-## 💡 기술적 의사결정 (Architecture Decisions)
-
-### 1. 구글 시트 API 비용 및 한계 극복
-
-* **이슈**: 구글 시트 API는 무료지만, 요청량 제한(Quota)이 있고 응답이 느립니다.
-* **해결책**: **"읽기는 메모리에서, 쓰기는 모아서"**
-  * 봇이 켜질 때 시트 내용을 다 읽어와서 메모리에 둡니다. (사용자 반응 속도 0.1초)
-  * 사용자 진도 업데이트는 로컬 DB(SQLite)에 즉시 반영하고, 구글 시트에는 비동기로 천천히 반영합니다.
-
-### 2. 웹훅 vs 폴링
-
-* **결정**: 초기에는 **폴링(Polling)** 유지.
-* **이유**: 오라클 프리티어의 포트 문제 등 인프라 복잡도를 낮추고 개발 속도를 높이기 위함. 추후 트래픽 증가 시 **Cloudflare Tunnel**을 도입하여 웹훅으로 무중단 전환.
+*   **Automated Reports (자동 리포트)**:
+    *   Weekly PDF/Image reports sent to leaders every Monday morning.
+    *   매주 월요일 아침, 리더들에게 "지난주 리포트" 자동 발송.

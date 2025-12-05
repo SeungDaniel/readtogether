@@ -22,25 +22,7 @@ def _get_env_or_raise(name: str) -> str:
     return value
 
 
-def _parse_group_ids() -> List[str]:
-    ids_env = os.environ.get("TELEGRAM_GROUP_CHAT_IDS")
-    if ids_env:
-        # Comma-separated list of chat ids, ignoring comments
-        ids = [
-            item.strip() 
-            for item in ids_env.split(",") 
-            if item.strip() and not item.strip().startswith("#")
-        ]
-        if ids:
-            return ids
-    single_id = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
-    if single_id and not single_id.strip().startswith("#"):
-        return [single_id.strip()]
-    return []
-
-
 TELEGRAM_BOT_TOKEN: str = _get_env_or_raise("TELEGRAM_BOT_TOKEN")
-TELEGRAM_GROUP_CHAT_IDS: List[str] = _parse_group_ids()
 
 GOOGLE_SERVICE_ACCOUNT_FILE: str = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "")
 
@@ -63,12 +45,9 @@ if not os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
                     break
         
         if not _found:
-            # Print debug info to help user
             print(f"!! Critical Error: Service Account Key file not found.")
             print(f"   - Env var value: '{os.environ.get('GOOGLE_SERVICE_ACCOUNT_FILE')}'")
             print(f"   - Searched in: {_config_dir}")
-            # Let it fail later or raise here, but _get_env_or_raise might have been better. 
-            # We will let the next line fail if it's empty.
 
 if not GOOGLE_SERVICE_ACCOUNT_FILE:
      raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE not set or file not found.")
@@ -95,59 +74,5 @@ REQUEST_TIMEOUT: int = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "15"))
 POLL_TIMEOUT: int = int(os.environ.get("POLL_TIMEOUT_SECONDS", "20"))
 BOT_USERNAME: str = os.environ.get("BOT_USERNAME", "")
 
-
-def _parse_date(date_str: str) -> datetime.date:
-    return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-
-
-def _parse_group_config() -> List[Dict[str, Any]]:
-    """Allow per-group plan sheet and start_date overrides.
-
-    TELEGRAM_GROUP_CONFIG expects a JSON array of:
-      [{"chat_id": "...", "plan_sheet": "plan_a", "start_date": "2025-12-01", "timezone": "Asia/Seoul"}, ...]
-    """
-    raw = os.environ.get("TELEGRAM_GROUP_CONFIG")
-    groups: List[Dict[str, Any]] = []
-    if raw:
-        try:
-            data = json.loads(raw)
-            if isinstance(data, list):
-                for item in data:
-                    chat_id = str(item.get("chat_id", "")).strip()
-                    if not chat_id:
-                        continue
-                    plan_sheet = item.get("plan_sheet", PLAN_SHEET_NAME)
-                    start_date_str = item.get("start_date", START_DATE_STR)
-                    tz_name: Optional[str] = item.get("timezone")
-                    tz = ZoneInfo(tz_name) if tz_name and ZoneInfo else TIMEZONE
-                    try:
-                        start_date = _parse_date(start_date_str)
-                    except ValueError:
-                        start_date = START_DATE
-                    groups.append(
-                        {
-                            "chat_id": chat_id,
-                            "plan_sheet": plan_sheet,
-                            "start_date": start_date,
-                            "timezone": tz,
-                        }
-                    )
-        except json.JSONDecodeError:
-            raise RuntimeError(
-                "Failed to parse TELEGRAM_GROUP_CONFIG; must be valid JSON array."
-            )
-
-    if not groups and TELEGRAM_GROUP_CHAT_IDS:
-        groups = [
-            {
-                "chat_id": cid,
-                "plan_sheet": PLAN_SHEET_NAME,
-                "start_date": START_DATE,
-                "timezone": TIMEZONE,
-            }
-            for cid in TELEGRAM_GROUP_CHAT_IDS
-        ]
-    return groups
-
-
-GROUPS = _parse_group_config()
+# Note: Group configuration is now handled exclusively via Google Sheets (GroupRepository).
+# TELEGRAM_GROUP_CHAT_IDS and TELEGRAM_GROUP_CONFIG are deprecated.

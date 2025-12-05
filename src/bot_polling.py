@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, Set
 import requests
 
 import config
+import constants
 from google_sheets_client import GoogleSheetsClient
 from plan_repository import PlanRepository
 from progress_repository import ProgressRepository
@@ -44,7 +45,7 @@ def send_message(
     reply_markup: Optional[Dict[str, Any]] = None,
 ) -> None:
     url = f"{config.TELEGRAM_API_BASE_URL}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     response = requests.post(url, json=payload, timeout=config.REQUEST_TIMEOUT)
@@ -79,7 +80,7 @@ def send_photo(
     response.raise_for_status()
 
 
-def set_message_reaction(chat_id: str, message_id: int, emoji: str = "👍") -> None:
+def set_message_reaction(chat_id: str, message_id: int, emoji: str = constants.EMOJI_REACTION) -> None:
     """React to a message with an emoji."""
     url = f"{config.TELEGRAM_API_BASE_URL}/setMessageReaction"
     payload = {
@@ -112,14 +113,52 @@ def build_plan_text(day: int, plan_row: dict, personal: bool = True) -> str:
     summary = plan_row.get("summary", "")
     verse_text = plan_row.get("verse_text", "")
     
+    mt = plan_row.get("mt", "").strip()
+    mk = plan_row.get("mk", "").strip()
+    lk = plan_row.get("lk", "").strip()
+    
+    # Helper to check if a parallel ref is valid (has content and not "독자 기록" or "-")
+    def is_valid_parallel(text: str) -> bool:
+        return bool(text) and text not in ("-", "독자 기록")
+    
+    has_parallel = is_valid_parallel(mt) or is_valid_parallel(mk) or is_valid_parallel(lk)
+    
     progress_percent = int((day / TOTAL_DAYS) * 100)
     
     msg = f"[{prefix} DAY {day}] {ref} ({title})\n\n"
     
     if verse_text:
-        msg += f"<i>\"{verse_text}\"</i>\n\n"
+        msg += f"<blockquote>{verse_text}</blockquote>\n\n"
         
-    msg += f"📖 이런 내용입니다:\n{summary}\n\n"
+    if has_parallel:
+        msg += "📖 평행본문 (Parallel Gospels)\n"
+        if is_valid_parallel(mt):
+            msg += f"• 마태(Mt): {mt}\n"
+        if is_valid_parallel(mk):
+            msg += f"• 마가(Mk): {mk}\n"
+        if is_valid_parallel(lk):
+            msg += f"• 누가(Lk): {lk}\n"
+        msg += "\n"
+        # Optional: Still show summary if parallel exists? User said "Instead of summary".
+        # Let's assume we replace summary with parallel if parallel exists.
+        # But if user wants summary + parallel, we can add it back.
+        # User said: "오늘의 말씀과, 요약 대신에 평행본문 소개하는걸로" -> So replace summary.
+    else:
+        # No parallel (Unique to John)
+        # User said: "요한복음에만 기록됐으면 오늘의 말씀(요약x)" -> So NO summary here either.
+        # Wait, if unique, show ONLY verse text.
+        pass
+        
+    # User instruction: "요한복음에만 기록됐으면 오늘의 말씀(요약x), 평행본문이 존재하면 평행본문 소개."
+    # This implies Summary is GONE in both cases for Personal Mode.
+    # But let's keep Summary for Community Mode (personal=False) if needed?
+    # The request said "개인모드에서 먼저...".
+    # Let's apply this logic for personal=True.
+    
+    if not personal:
+        # For community mode, keep original behavior (Summary)
+        msg += f"{constants.EMOJI_BOOK} 이런 내용입니다:\n{summary}\n\n"
+    
     msg += "인상 깊은 구절이나 한 줄 소감을 보내주셔도 좋습니다.\n"
     
     if personal:
@@ -209,19 +248,18 @@ class BotPolling:
             chat_type = chat.get("type")
             chat_id = str(chat.get("id"))
             
-            # 3. Handle Group Replies (Reaction)
+            # 3. Handle Group Replies (Reaction) & Auto-Linking
             if chat_type in ("group", "supergroup"):
+                # Auto-Link User to Group
+                user = message.get("from")
+                if user and not user.get("is_bot"):
+                    user_id = str(user.get("id"))
+                    username = user.get("username", "")
+                    self.link_user_to_group(user_id, username, chat_id)
+
                 reply_to = message.get("reply_to_message")
                 if reply_to:
                     # Check if reply is to the bot
-                    # We can check if 'from' in reply_to is the bot, but simpler is just to react if it's a reply
-                    # Ideally we check if reply_to['from']['is_bot'] is True and username matches
-                    # For now, let's just react to any reply to the bot's message
-                    # But we need to know bot's ID or username. 
-                    # Let's assume if it's a reply, we check if the original message was sent by us.
-                    # Since we don't store our own ID easily without a getMe call, 
-                    # we can rely on the fact that we only care if the user is replying to *us*.
-                    # A safe heuristic: if reply_to_message exists and from.is_bot is True.
                     reply_from = reply_to.get("from", {})
                     
                     # Check if the message being replied to is from THIS bot
@@ -239,7 +277,7 @@ class BotPolling:
                         
                     if is_reply_to_me:
                          logging.info("Detected reply to bot in chat %s. Reacting...", chat_id)
-                         set_message_reaction(chat_id, message["message_id"], "👍")
+                         set_message_reaction(chat_id, message["message_id"], constants.EMOJI_REACTION)
                          continue
 
             # 4. Handle Commands
@@ -272,6 +310,29 @@ class BotPolling:
                 self.log_event(message, command, "error", str(exc))
             else:
                 self.log_event(message, command, "ok")
+
+    def link_user_to_group(self, user_id: str, username: str, group_id: str) -> None:
+        """Add group_id to user's progress if not already present."""
+        try:
+            progress = self.progress_repo.get_progress(user_id)
+            current_day = 1
+            group_ids = []
+            
+            if progress:
+                current_day = progress["current_day"]
+                group_ids = progress.get("group_ids", [])
+            
+            if group_id not in group_ids:
+                group_ids.append(group_id)
+                logging.info("Linking user %s to group %s", user_id, group_id)
+                self.progress_repo.upsert_progress(
+                    user_id=user_id,
+                    username=username,
+                    current_day=current_day,
+                    group_ids=group_ids
+                )
+        except Exception:
+            logging.error("Failed to link user to group", exc_info=True)
 
     def handle_callback_query(self, cb: dict) -> None:
         cb_id = cb["id"]
@@ -307,42 +368,20 @@ class BotPolling:
         progress = self.progress_repo.get_progress(user_id)
         if progress:
             current_day = progress["current_day"]
-            text = (
-                "이미 요한복음 퀘스트를 진행 중입니다. 😊\n\n"
-                f"- 현재 진행 단계: DAY {current_day}\n\n"
-                "아래 버튼을 눌러 계속 진행해보세요."
-            )
+            text = constants.MSG_ALREADY_STARTED.format(current_day=current_day)
             send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
             return
 
         self.progress_repo.upsert_progress(
             user_id=str(user_id), username=username, current_day=1, last_read_at=""
         )
-        text = (
-            "요한복음 데일리 퀘스트를 시작합니다. ✨\n"
-            "지금부터 당신의 속도로, 1일차부터 차근차근 함께 읽을게요.\n\n"
-            "준비가 되셨다면 아래 버튼을 눌러 첫 퀘스트를 받아보세요!"
-        )
+        text = constants.MSG_QUEST_START
         send_message(chat_id, text, reply_markup=keyboard_factory.get_start_keyboard())
 
     def handle_start_entry(self, message: dict) -> None:
         chat_id = message["chat"]["id"]
         send_typing(chat_id)
-        text = (
-            "안녕하세요! 요한복음 봇입니다. 🙌\n\n"
-            "개인 퀘스트를 시작하려면 아래 버튼을 눌러주세요."
-        )
-        # Reuse start keyboard or make a specific one
-        kb = {
-            "inline_keyboard": [[{"text": "개인 퀘스트 시작 (/start_john)", "callback_data": "start_john_cmd"}]] 
-        }
-        # Note: I didn't add start_john_cmd to handle_callback_query yet, let's just guide them to type it or use a deep link
-        # Actually, let's just tell them to type /start_john for now or use the button if I implement it.
-        # Simpler: Just guide them.
-        text = (
-            "안녕하세요! 요한복음 봇입니다. 🙌\n\n"
-            "개인 퀘스트를 시작하려면 /start_john 을 입력해주세요."
-        )
+        text = constants.MSG_WELCOME
         send_message(chat_id, text)
 
     def handle_next(self, message: dict) -> None:
@@ -361,7 +400,7 @@ class BotPolling:
         if not plan_row:
             send_message(
                 chat_id,
-                "더 이상 준비된 퀘스트가 없습니다. 축하합니다, 완주하셨습니다! 🎉",
+                constants.MSG_NO_QUEST,
             )
             return
 
@@ -390,7 +429,7 @@ class BotPolling:
         if not progress:
             send_message(
                 chat_id,
-                "아직 요한복음 퀘스트를 시작하지 않으셨습니다. /start_john 으로 시작할 수 있어요.",
+                constants.MSG_NOT_STARTED,
             )
             return
 
@@ -400,17 +439,9 @@ class BotPolling:
         if plan_row:
             ref = plan_row.get("ref", "")
             title = plan_row.get("title", "")
-            text = (
-                "🔎 나의 요한복음 퀘스트 현황\n\n"
-                f"- 완료한 퀘스트: DAY {finished_day}\n"
-                f"- 다음 퀘스트: DAY {next_day} – {ref} ({title})"
-            )
+            text = constants.MSG_STATUS_HEADER + constants.MSG_STATUS_BODY.format(finished_day=finished_day, next_day=next_day, ref=ref, title=title)
         else:
-            text = (
-                "🔎 나의 요한복음 퀘스트 현황\n\n"
-                f"- 완료한 퀘스트: DAY {finished_day}\n"
-                "이미 준비된 모든 퀘스트를 완료하셨습니다. 🎉"
-            )
+            text = constants.MSG_STATUS_HEADER + constants.MSG_STATUS_FINISHED.format(finished_day=finished_day)
         send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
 
     def handle_repeat(self, message: dict) -> None:
@@ -422,7 +453,7 @@ class BotPolling:
         if not progress:
             send_message(
                 chat_id,
-                "아직 요한복음 퀘스트를 시작하지 않으셨습니다. /start_john 으로 시작할 수 있어요.",
+                constants.MSG_NOT_STARTED,
             )
             return
 
@@ -439,11 +470,6 @@ class BotPolling:
             return
 
         text = build_plan_text(repeat_day, plan_row, personal=True)
-        # Override text for repeat context if needed, but build_plan_text is generic now.
-        # Let's just prepend the "Last read" context or rely on build_plan_text's header.
-        # build_plan_text uses "[개인 DAY N]" header.
-        # Let's stick to the standard format for consistency, or modify build_plan_text to accept a prefix override?
-        # For simplicity, let's use the standard text which is rich enough.
         
         image_url = plan_row.get("image_url", "").strip()
         if image_url:
@@ -451,34 +477,66 @@ class BotPolling:
         else:
              send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
 
-    # handle_previous removed as it is not in the new spec and inline buttons handle navigation better.
-
-
     def handle_today_group(self, message: dict) -> None:
-        """Allow personal DM to see today's 공동체 본문 (first group config)."""
+        """Show today's plan for the user's linked groups."""
         chat_id = message["chat"]["id"]
+        user_id = str(chat_id)
         send_typing(chat_id)
-        if not config.GROUPS:
-            send_message(chat_id, "그룹 설정이 없습니다.", use_default_keyboard=True)
-            return
-        group = config.GROUPS[0]
-        tz = group.get("timezone") or config.TIMEZONE
-        start_date = group["start_date"]
-        plan_sheet = group["plan_sheet"]
+        
+        # 1. Get User's Linked Groups
+        progress = self.progress_repo.get_progress(user_id)
+        linked_group_ids = progress.get("group_ids", []) if progress else []
+        
+        # 2. Fetch All Groups Config
+        all_groups = self.group_repo.list_groups()
+        
+        # 3. Filter Linked Groups
+        target_groups = []
+        if linked_group_ids:
+            target_groups = [g for g in all_groups if str(g["chat_id"]) in linked_group_ids]
+        
+        # Fallback: If no linked groups, try to show the first available group (or error)
+        if not target_groups:
+            if all_groups:
+                # Optional: Show first group as default, or tell user to join a group
+                # For now, let's show the first one but maybe add a note?
+                # Or strictly require membership. Let's be friendly and show first one.
+                target_groups = [all_groups[0]]
+            else:
+                send_message(chat_id, "등록된 그룹이 없습니다.", use_default_keyboard=True)
+                return
 
-        now_local = datetime.datetime.now(tz=tz) if tz else datetime.datetime.now()
-        day = (now_local.date() - start_date).days + 1
-        if day <= 0:
-            send_message(chat_id, "공동체 DAY가 아직 시작 전입니다.")
-            return
+        # 4. Send Plan for Each Target Group
+        for group in target_groups:
+            tz = group.get("timezone") or config.TIMEZONE
+            start_date = group["start_date"]
+            # group_title = group.get("title", "공동체") # If we had title in repo
+            
+            try:
+                from zoneinfo import ZoneInfo
+                tz_info = ZoneInfo(tz) if tz else None
+            except Exception:
+                logging.warning("Invalid timezone %s, falling back to local", tz)
+                tz_info = None
 
-        plan_row = self.plan_repo.get_plan_by_day(day)
-        if not plan_row:
-            send_message(chat_id, f"공동체 DAY {day} 정보를 찾지 못했습니다.")
-            return
+            now_local = datetime.datetime.now(tz=tz_info)
+            day = (now_local.date() - start_date).days + 1
+            
+            if day <= 0:
+                send_message(chat_id, f"공동체(ID:{group['chat_id']}) DAY가 아직 시작 전입니다.")
+                continue
 
-        text = build_plan_text(day, plan_row, personal=False)
-        send_message(chat_id, text)
+            plan_row = self.plan_repo.get_plan_by_day(day)
+            if not plan_row:
+                send_message(chat_id, f"공동체(ID:{group['chat_id']}) DAY {day} 정보를 찾지 못했습니다.")
+                continue
+
+            text = build_plan_text(day, plan_row, personal=True)
+            # Add a header to distinguish groups if multiple
+            if len(target_groups) > 1:
+                text = f"📢 <b>그룹 {group['chat_id']}</b>\n\n" + text
+                
+            send_message(chat_id, text)
 
     def handle_register_group(self, message: dict) -> None:
         chat = message.get("chat", {})
