@@ -324,8 +324,10 @@ class BotPolling:
                         self.handle_next(message)
                     elif command == "/status":
                         self.handle_status(message)
-                    elif command == "/repeat":
+            elif command == "/repeat":
                         self.handle_repeat(message)
+                    elif command == "/previous":
+                        self.handle_previous(message)
                     elif command == "/today_group":
                         self.handle_today_group(message)
                     elif command == "/reload":
@@ -379,6 +381,9 @@ class BotPolling:
         elif data == "repeat":
             answer_callback_query(cb_id, "다시 읽기")
             self.handle_repeat(message)
+        elif data == "previous":
+            answer_callback_query(cb_id, "이전 퀘스트")
+            self.handle_previous(message)
         elif data == "status":
             answer_callback_query(cb_id)
             self.handle_status(message)
@@ -431,12 +436,8 @@ class BotPolling:
             return
 
         text = build_plan_text(day, plan_row, personal=True)
-        image_url = plan_row.get("image_url", "").strip()
-        
-        if image_url:
-            send_photo(chat_id, image_url, text, reply_markup=keyboard_factory.get_quest_keyboard())
-        else:
-            send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
+        # User requested NO photo in personal mode
+        send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
 
         today_str = today_date().isoformat()
         self.progress_repo.upsert_progress(
@@ -496,12 +497,36 @@ class BotPolling:
             return
 
         text = build_plan_text(repeat_day, plan_row, personal=True)
+        # User requested NO photo in personal mode
+        send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
+
+    def handle_previous(self, message: dict) -> None:
+        """Handle /previous command to show the day BEFORE the last completed one."""
+        chat_id = message["chat"]["id"]
+        user_id = chat_id
+        send_typing(chat_id)
+
+        progress = self.progress_repo.get_progress(user_id)
+        if not progress:
+            send_message(chat_id, constants.MSG_NOT_STARTED)
+            return
+
+        # current_day is the NEXT pending quest.
+        # current_day - 1 is the LAST completed quest (shown by /repeat).
+        # current_day - 2 is the one before that (shown by /previous).
+        prev_day = progress["current_day"] - 2
         
-        image_url = plan_row.get("image_url", "").strip()
-        if image_url:
-             send_photo(chat_id, image_url, text, reply_markup=keyboard_factory.get_quest_keyboard())
-        else:
-             send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
+        if prev_day <= 0:
+            send_message(chat_id, "이전 퀘스트가 없습니다.", reply_markup=keyboard_factory.get_quest_keyboard())
+            return
+
+        plan_row = self.plan_repo.get_plan_by_day(prev_day)
+        if not plan_row:
+            send_message(chat_id, "퀘스트 정보를 찾을 수 없습니다.")
+            return
+
+        text = build_plan_text(prev_day, plan_row, personal=True)
+        send_message(chat_id, text, reply_markup=keyboard_factory.get_quest_keyboard())
 
     def handle_today_group(self, message: dict) -> None:
         """Show today's plan for the user's linked groups."""
