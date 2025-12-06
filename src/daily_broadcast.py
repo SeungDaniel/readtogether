@@ -150,6 +150,7 @@ def main() -> None:
                     if g.get("timezone") and config.ZoneInfo
                     else config.TIMEZONE
                 ),
+                "notification_time": g.get("notification_time", "08:00"),
             }
             for g in sheet_groups
         ]
@@ -160,6 +161,8 @@ def main() -> None:
 
     today = _now()
     plan_repos = {}
+    
+    force_send = os.environ.get("FORCE_SEND", "").lower() == "true"
 
     for group in groups:
         chat_id_raw = group["chat_id"]
@@ -167,8 +170,29 @@ def main() -> None:
         start_date = group.get("start_date") or config.START_DATE
         plan_sheet = group.get("plan_sheet") or config.PLAN_SHEET_NAME
         tz = group.get("timezone") or config.TIMEZONE
+        notification_time = group.get("notification_time", "08:00")
 
         now_local = datetime.datetime.now(tz=tz) if tz else today
+        
+        # Time Check
+        if not force_send:
+            try:
+                target_hour = int(notification_time.split(":")[0])
+                current_server_time = datetime.datetime.now()
+                logging.debug(
+                    "ChatID=%s, Timezone=%s. ServerTime=%s, LocalTime=%s. TargetHour=%s", 
+                    chat_id, tz, current_server_time, now_local, target_hour
+                )
+
+                if now_local.hour != target_hour:
+                    logging.info(
+                        "Skipping chat_id=%s: Current hour %s (Loc: %s) != Target %s", 
+                        chat_id, now_local.hour, now_local.strftime("%H:%M"), target_hour
+                    )
+                    continue
+            except Exception:
+                logging.warning("Invalid notification_time %s for chat_id=%s", notification_time, chat_id)
+
         day = calculate_day(now_local, start_date)
         if day is None:
             logging.info(
