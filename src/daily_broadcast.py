@@ -71,7 +71,8 @@ def build_message(plan_row: dict, day: int, youtube_link: str = "") -> str:
     if youtube_link:
         msg += f"{constants.EMOJI_HEADPHONE} <a href=\"{youtube_link}\">오늘 말씀 듣기 (Youtube)</a>\n"
     msg += f'{constants.EMOJI_MAP} <a href="https://t.me/c/1829333998/244/361?single">[지도] 예수님 당시의 이스라엘</a>\n'
-    msg += f'{constants.EMOJI_COMPASS} <a href="http://www.biblemap.or.kr/biblemapMobile.html">성경 지도(추천)</a>'
+    msg += f'{constants.EMOJI_COMPASS} <a href="http://www.biblemap.or.kr/biblemapMobile.html">성경 지도(추천)</a>\n'
+    msg += f'{constants.EMOJI_JOYSTICK} <a href="https://john.rtl.kr/">요한복음 기억하기 게임</a>'
     
     return msg
 
