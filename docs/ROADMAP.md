@@ -29,9 +29,43 @@
 - [ ] **주간 리포트**: 공동체 진도율 자동 발송
 - [ ] **리마인더**: 읽지 않은 사용자에게 저녁 알림
 
-### Phase 6: 데이터 고도화
+### Phase 6: 관리자 웹 UI 🆕
+- [ ] **Flask/FastAPI 기반 웹 페이지**
+- [ ] **관리자 로그인**: Telegram/Google OAuth
+- [ ] **그룹 설정 관리**:
+  - 발송 시간 변경
+  - 책 선택 (드롭다운)
+  - 시작일 설정 (달력 UI)
+- [ ] **통계 대시보드**: 읽음 인증 현황
+
+### Phase 7: 데이터 고도화
 - [ ] Google Sheets → SQLite 마이그레이션 (성능 개선)
-- [ ] 읽음 통계 대시보드 웹페이지
+
+---
+
+## 📖 새 책 추가 방법
+
+### Step 1: 데이터 준비
+```csv
+# data/[book]_plan.csv
+Day,Ref,Title,Verse_Text,Verse_Ref,Image_URL,Youtube_Link
+1,마태복음 1:1-17,예수님의 족보,...
+```
+
+### Step 2: book_registry.py에 등록
+```python
+"matthew": {
+    "id": "matthew",
+    "name_ko": "마태복음",
+    "total_days": 100,
+    "sheet_name": "plan_matthew",
+    "game_link": "",
+},
+```
+
+### Step 3: Google Sheets
+1. `plan_matthew` 탭 생성 + CSV 붙여넣기
+2. `groups` 시트에서 `plan_sheet`를 `plan_matthew`로 변경
 
 ---
 
