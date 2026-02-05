@@ -2,13 +2,14 @@ import datetime
 import logging
 import os
 import html
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import requests
 
 import config
 import constants
 import utils
+import book_registry
 from google_sheets_client import GoogleSheetsClient
 from plan_repository import PlanRepository
 from group_repository import GroupRepository
@@ -34,47 +35,50 @@ def calculate_day(today: datetime.datetime, start_date: datetime.date) -> Option
     return day_index + 1
 
 
-TOTAL_DAYS = 66  # Based on the screenshot (n/66)
-
-
-def build_message(plan_row: dict, day: int, youtube_link: str = "") -> str:
+def build_message(plan_row: dict, day: int, book: Dict[str, Any], youtube_link: str = "") -> str:
+    """Build broadcast message with book-specific info."""
     ref = html.escape(plan_row.get("ref", ""))
     title = html.escape(plan_row.get("title", ""))
     summary = html.escape(plan_row.get("summary", ""))
     verse_text = html.escape(plan_row.get("verse_text", ""))
     verse_ref = html.escape(plan_row.get("verse_ref", ""))
     
-    # Calculate progress
-    progress_percent = int((day / TOTAL_DAYS) * 100)
+    book_name = book.get("name_ko", "성경")
+    total_days = book.get("total_days", 66)
+    game_link = book.get("game_link", "")
     
-    msg = f"[요한복음 함께 읽기 DAY {day}]\n\n"
+    # Calculate progress
+    progress_percent = int((day / total_days) * 100)
+    
+    msg = f"[{book_name} 함께 읽기 DAY {day}]\n\n"
     msg += "오늘의 범위는\n"
     msg += f"{constants.EMOJI_RAINBOW} <b>{ref} ({title})</b>입니다.\n\n"
-
 
     if verse_text:
         msg += f"📖 <b>오늘의 말씀</b>\n<blockquote>\"{verse_text}\"{verse_ref}</blockquote>\n\n"
     
-    # Summary temporarily disabled
-    # msg += "📖 <b>무슨 내용인가요?</b>\n"
-    # msg += f"{summary}\n\n"
-
-    # Youtube link moved to References
-    # if youtube_link:
-    #     msg += f"🎧 <a href=\"{youtube_link}\">오늘 말씀 듣기 (Youtube)</a>\n\n"
-    
     msg += "읽고 퀴즈를 내거나, 인상깊은 구절을 공유하는 등 자유롭게 인증해주세요. 🙌\n\n"
     
-    msg += f"진도율 : {day}/{TOTAL_DAYS} ({progress_percent}% 완료!)\n\n"
+    msg += f"진도율 : {day}/{total_days} ({progress_percent}% 완료!)\n\n"
     
     msg += f"📚 <b>참고자료</b>\n"
     if youtube_link:
         msg += f"{constants.EMOJI_HEADPHONE} <a href=\"{youtube_link}\">오늘 말씀 듣기 (Youtube)</a>\n"
     msg += f'{constants.EMOJI_MAP} <a href="https://t.me/c/1829333998/244/361?single">[지도] 예수님 당시의 이스라엘</a>\n'
     msg += f'{constants.EMOJI_COMPASS} <a href="http://www.biblemap.or.kr/biblemapMobile.html">성경 지도(추천)</a>\n'
-    msg += f'{constants.EMOJI_JOYSTICK} <a href="https://john.rtl.kr/">요한복음 기억하기 게임</a>'
+    if game_link:
+        msg += f'{constants.EMOJI_JOYSTICK} <a href="{game_link}">{book_name} 기억하기 게임</a>'
     
     return msg
+
+
+def build_read_button(day: int, chat_id: str, book_id: str) -> dict:
+    """Build inline keyboard with read confirmation button."""
+    return {
+        "inline_keyboard": [[
+            {"text": "✅ 읽었어요", "callback_data": f"read:{book_id}:{day}:{chat_id}"}
+        ]]
+    }
 
 
 def send_message(chat_id: str, text: str, message_thread_id: Optional[int] = None, reply_markup: Optional[dict] = None) -> None:
@@ -214,8 +218,13 @@ def main() -> None:
             )
             continue
 
-        message = build_message(plan_row, day, youtube_link=plan_row.get("youtube_link", "").strip())
+        # Get book info from plan_sheet
+        book = book_registry.get_book_by_sheet(plan_sheet) or book_registry.get_book(book_registry.DEFAULT_BOOK)
+        book_id = book.get("id", "john")
+
+        message = build_message(plan_row, day, book, youtube_link=plan_row.get("youtube_link", "").strip())
         image_url = plan_row.get("image_url", "").strip()
+        read_button = build_read_button(day, chat_id, book_id)
         
         if DRY_RUN:
             logging.info(
@@ -231,14 +240,14 @@ def main() -> None:
         try:
             if image_url:
                 logging.info("Attempting to send photo to %s. URL/Path: '%s'", chat_id, image_url)
-                send_photo(chat_id, image_url, message, thread_id)
+                send_photo(chat_id, image_url, message, thread_id, reply_markup=read_button)
                 logging.info(
-                    "Sent day %s photo+message to chat_id=%s (sheet=%s)", day, chat_id_raw, plan_sheet
+                    "Sent day %s photo+message to chat_id=%s (sheet=%s, book=%s)", day, chat_id_raw, plan_sheet, book_id
                 )
             else:
-                send_message(chat_id, message, thread_id)
+                send_message(chat_id, message, thread_id, reply_markup=read_button)
                 logging.info(
-                    "Sent day %s message to chat_id=%s (sheet=%s)", day, chat_id_raw, plan_sheet
+                    "Sent day %s message to chat_id=%s (sheet=%s, book=%s)", day, chat_id_raw, plan_sheet, book_id
                 )
         except requests.RequestException as exc:
             logging.error(
