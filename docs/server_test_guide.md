@@ -25,11 +25,8 @@ ls -l
 # 1. 프로젝트 폴더로 이동
 cd ~/john-bot
 
-# 2. 환경변수 설정 (필수!)
-export PYTHONPATH=$PYTHONPATH:$(pwd)
-
-# 3. Webhook 서버 실행 (gunicorn 사용 권장)
-gunicorn -w 2 -b 0.0.0.0:8443 src.callback_handler:app
+# 2. Webhook 서버 실행 (gunicorn 사용 권장)
+gunicorn --pythonpath src -w 2 -b 0.0.0.0:8443 callback_handler:app
 ```
 
 * **성공 시**: `[INFO] Starting gunicorn...` 같은 로그가 뜨고 대기 상태에 들어갑니다.
@@ -42,7 +39,7 @@ gunicorn -w 2 -b 0.0.0.0:8443 src.callback_handler:app
 
 ```bash
 # 1. 백그라운드 실행 (gunicorn 사용)
-nohup gunicorn -w 2 -b 0.0.0.0:8443 src.callback_handler:app > nohup.out 2>&1 &
+nohup gunicorn --pythonpath src -w 2 -b 0.0.0.0:8443 callback_handler:app > nohup.out 2>&1 &
 
 # 2. 잘 켜졌는지 확인
 ps aux | grep gunicorn

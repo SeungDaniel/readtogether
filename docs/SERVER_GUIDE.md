@@ -58,7 +58,7 @@ git pull origin main
 pkill -f gunicorn
 
 # 2. 백그라운드 재실행 (포트 8443)
-nohup gunicorn -w 2 -b 0.0.0.0:8443 src.callback_handler:app > nohup.out 2>&1 &
+nohup gunicorn --pythonpath src -w 2 -b 0.0.0.0:8443 callback_handler:app > nohup.out 2>&1 &
 
 # 3. 잘 켜졌는지 에러 로그 확인
 tail -f nohup.out
